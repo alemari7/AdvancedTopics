@@ -43,3 +43,4 @@ predicted_rating = user1_ratings['rating'].mean() + (sim * (other_ratings['ratin
 print("Predicted rating for user", USER_1, "and movie", movie_id, ":", predicted_rating)
 
 
+
