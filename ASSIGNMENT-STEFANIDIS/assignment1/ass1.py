@@ -1,46 +1,34 @@
 import pandas as pd
+import numpy as np
+from scipy.stats import pearsonr
 import math
 
 #(a) load the data and choose the user and movie
-USER_1 = 76
-movie_id = 77
+USER_1 = 7
+movie_id = 23
 ratings_data = pd.read_csv("ratings.csv").drop(['timestamp'], axis=1)
 
 #(b) defining the function to find similar users, using the pearson correlation
-def find_similar_users(USER_1, ratings_data):
-    # dataframe that contains ratings of the specified user
-    user_ratings = ratings_data[ratings_data['userId'] == USER_1]
-    # dataframe that contains ratings of all other users
-    other_user_ratings = ratings_data[ratings_data['userId'] != USER_1]
-
-    similarity = dict()  # dict for similarity { key='userid' : value = similarity}
-
-    # rows are ordered by userId
-    while ratings_data.shape[0] > 0:
-        #select the first row and all the rows for this user
-        other_user_id = float(ratings_data.iloc[0]['userId'])
-        #extract the ratings of the other user and put into a dataframe
-        other_user_ratings = ratings_data[ratings_data['userId'] == other_user_id]
-
-        # create a dataframe that contains only the ratings on the common movies between the two users
-        common_films = pd.merge(user_ratings, other_user_ratings, how='inner', on=['movieId'])
-
-        if not common_films.empty:  # correlation on ratings for common movies
-            sim = common_films['rating_x'].corr(common_films['rating_y'])
-            if not math.isnan(sim):  # drop the user when similarity is nan
-                similarity.update({other_user_id: sim})
-
-        # remove from the dataframe the rows analyzed in this iteration
-        ratings_data = ratings_data[ratings_data['userId'] != other_user_id]
-
-    # sort similarity and take top 10 similar users
-    similarity = dict(sorted(similarity.items(), key=lambda x: x[1], reverse=True)[:10])
-    return similarity
+def find_similar_users(user_id, ratings_data):
+    similarity = {}
+    #dataframe of user ratings for the user
+    user_ratings = ratings_data[ratings_data['userId'] == user_id]
+    for other_user_id in ratings_data['userId'].unique():
+        if other_user_id != user_id:
+            #dataframe of user ratings for the other user
+            other_user_ratings = ratings_data[ratings_data['userId'] == other_user_id]
+            #dataframe of common movies between the user and the other user
+            common_movies = pd.merge(user_ratings, other_user_ratings, on='movieId', how='inner')
+            if len(common_movies) >= 2:  # Ensure enough common movies for correlation
+                corr, _ = pearsonr(common_movies['rating_x'], common_movies['rating_y'])
+                if not np.isnan(corr):  # Check if correlation is not NaN
+                    similarity[other_user_id] = corr
+    return dict(sorted(similarity.items(), key=lambda x: x[1], reverse=True)[:10])
 
 similar_users = find_similar_users(USER_1, ratings_data)
 print("Top 10 similar users for user", USER_1, "using Pearson Correlation are:", similar_users)
 
-#(c) defining the function to predict the rating
+#(c)define the function to predict the rating
 def predicted_rating(user_id, movie_id, similarity, ratings_data):
     user_ratings = ratings_data[ratings_data['userId'] == user_id]
     user_mean_rating = user_ratings['rating'].mean()
@@ -52,36 +40,36 @@ def predicted_rating(user_id, movie_id, similarity, ratings_data):
     for similar_user_id, sim_value in similarity.items():
         similar_user_ratings = ratings_data[ratings_data['userId'] == similar_user_id]
         if movie_id in similar_user_ratings['movieId'].values:
-            #if the user has rated the movie, then we can use the similarity to calculate the weighted sum
+            #if the user has rated the movie, then we can use it to predict the rating
             similar_user_rating = similar_user_ratings[similar_user_ratings['movieId'] == movie_id]['rating'].values[0]
             weighted_sum += sim_value * (similar_user_rating - similar_user_ratings['rating'].mean())
             sum_of_weights += abs(sim_value)
-    #if there are no similar users that have rated the movie, then we return the mean rating of the user
+    #if there are no similar users, then we return the mean rating of the user
     if sum_of_weights == 0:
         return user_mean_rating
     else:
-        #otherwise we return the predicted rating
+        #otherwise, we return the predicted rating
         predicted_score = user_mean_rating + weighted_sum / sum_of_weights
         return predicted_score
 
 print("Predicted rating for user", USER_1, "and movie", movie_id, ":", predicted_rating(USER_1, movie_id, similar_users, ratings_data))
 
-#(d) define the function to find the top 10 recommended movies
+# Define the function to find the top 10 recommended movies
 def top_recommended_movies(user_id, similarity, ratings_data):
     user_ratings = ratings_data[ratings_data['userId'] == user_id]
     unrated_movies = ratings_data[~ratings_data['movieId'].isin(user_ratings['movieId'])]
 
     recommendations = []
-    #for each movie that the user has not rated, we calculate the predicted rating
+    #for each unrated movie, we predict the rating and add it to the recommendations list
     for movie_id in unrated_movies['movieId'].unique():
         predicted_score = predicted_rating(user_id, movie_id, similarity, ratings_data)
         recommendations.append((movie_id, predicted_score))
-    #sort the recommendations by predicted rating
+        #sort the recommendations by the predicted score
     recommendations.sort(key=lambda x: x[1], reverse=True)
     top_recommendations = recommendations[:10]
     return top_recommendations
 
-#find the top 10 recommended movies
+# Find the top 10 recommended movies
 top_movies = top_recommended_movies(USER_1, similar_users, ratings_data)
 print("Top 10 recommended films for user ", USER_1, "are:")
 for movie_id, predicted_score in top_movies:
