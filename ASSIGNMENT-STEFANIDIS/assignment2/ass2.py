@@ -99,3 +99,40 @@ for rank, (movie_id, predicted_score) in enumerate(average_recommendations, star
 print("\nTop-10 recommendations using the least misery method:")
 for rank, (movie_id, predicted_score) in enumerate(least_misery_recommendations, start=1):
     print(f"{rank}. Movie ID: {movie_id}, Predicted Score: {predicted_score}")
+
+#define the function to calculate the disagreement between two users
+def calculate_disagreement(user1_ratings, user2_ratings):
+    # Merge common movies between the two users
+    common_movies = pd.merge(user1_ratings, user2_ratings, on='movieId', how='inner')
+    
+    # Calculate squared difference of ratings for common movies
+    squared_diff = (common_movies['rating_x'] - common_movies['rating_y']) ** 2
+    
+    # Check if there are common movies to compute disagreement
+    if not squared_diff.empty:
+        # Calculate the root mean square difference
+        rmsd = np.sqrt(np.mean(squared_diff))
+        return rmsd
+    else:
+        return None
+
+# Calculate disagreements between users in the group using the new function
+disagreements = {}
+for user1_id in group_users:
+    for user2_id in group_users:
+        if user1_id != user2_id:
+            user1_ratings = group_ratings[group_ratings['userId'] == user1_id]
+            user2_ratings = group_ratings[group_ratings['userId'] == user2_id]
+            disagreement = calculate_disagreement(user1_ratings, user2_ratings)
+            # Check if disagreement value is not NaN before storing
+            if disagreement is not None:
+                disagreements[(user1_id, user2_id)] = disagreement
+
+
+# Print the disagreements between users
+print("\nDisagreements between users:")
+for (user1_id, user2_id), disagreement in disagreements.items():
+    print(f"User {user1_id} vs User {user2_id}: {disagreement}")
+
+    
+
