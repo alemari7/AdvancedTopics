@@ -1,68 +1,82 @@
 import pandas as pd
 import numpy as np
 from scipy.stats import pearsonr
+import math
 
-#load the MovieLens 100K dataset
+# Load the MovieLens 100K dataset
 ratings_data = pd.read_csv("ratings.csv")
 
-#select a random group of 3 users
+# Select a group of 3 random users
 group_users = np.random.choice(ratings_data['userId'].unique(), size=3, replace=False)
 group_ratings = ratings_data[ratings_data['userId'].isin(group_users)]
 
-#define the function to calculate recommendations for a user
-def calculate_recommendations(user_id, group_ratings):
-    similarity = {}
-    user_ratings = group_ratings[group_ratings['userId'] == user_id]
-    for other_user_id in group_ratings['userId'].unique():
-        if other_user_id != user_id:
-            other_user_ratings = group_ratings[group_ratings['userId'] == other_user_id]
-            common_movies = pd.merge(user_ratings, other_user_ratings, on='movieId', how='inner')
-            if len(common_movies) >= 2:  #Ensure enough common movies for correlation
-                corr, _ = pearsonr(common_movies['rating_x'], common_movies['rating_y'])
-                if not np.isnan(corr):  #Check if correlation is not NaN
-                    similarity[other_user_id] = corr
+#(a) Function to calculate the Pearson correlation coefficient
+def pearson_correlation(df_user1, df_user2):
+    merged_ratings = df_user1.merge(df_user2, on="movieId", how="inner")
+    if merged_ratings.empty:
+        return math.nan
+    
+    ratings_user1 = merged_ratings['rating_x']
+    ratings_user2 = merged_ratings['rating_y']
+    mean_user1 = ratings_user1.mean()
+    mean_user2 = ratings_user2.mean()
+    
+    num = np.sum((ratings_user1 - mean_user1) * (ratings_user2 - mean_user2))
+    den = np.sqrt(np.sum((ratings_user1 - mean_user1) ** 2)) * np.sqrt(np.sum((ratings_user2 - mean_user2) ** 2))
+    
+    try:
+        coef = num / den
+    except (RuntimeWarning, ZeroDivisionError):
+        return math.nan
+    
+    return coef
 
+# Function to calculate the predicted rating for a movie
+def predicted_rating(user_id, movie_id, ratings_data):
+    df_userA = ratings_data[ratings_data['userId'] == user_id]
+    userA_mean = df_userA['rating'].mean()
+    users_for_film = ratings_data[ratings_data['movieId'] == movie_id].drop(['movieId', 'rating'], axis=1)
+    num = 0
+    den = 0
+    
+    for user in users_for_film['userId']:
+        df_userB = ratings_data[ratings_data['userId'] == user]
+        sim = pearson_correlation(df_userA, df_userB)
+        if not math.isnan(sim):
+            num += sim * (df_userB[df_userB['movieId'] == movie_id].iloc[0]['rating'] - df_userB['rating'].mean())
+            den += sim
+
+    try:
+        div = num / den
+        pred = userA_mean + div
+        if math.isnan(pred):
+            return None  # Return None if the predicted score is NaN
+        return pred
+    except (RuntimeWarning, ZeroDivisionError):
+        return None  # Return None if there's an exception
+
+# Function to calculate recommendations for a user
+def calculate_recommendations(user_id, group_ratings):
     recommendations = []
-    for movie_id in group_ratings['movieId'].unique():
-        predicted_score = predicted_rating(user_id, movie_id, similarity, group_ratings)
-        recommendations.append((movie_id, predicted_score))
+    user_ratings = group_ratings[group_ratings['userId'] == user_id]
+    all_movies = group_ratings['movieId'].unique()
+    user_voted_movies = user_ratings['movieId'].unique()
+    
+    for movie_id in all_movies:
+        if movie_id not in user_voted_movies:  # Check if the movie is not voted by the user
+            predicted_score = predicted_rating(user_id, movie_id, group_ratings)
+            if predicted_score is not None:
+                recommendations.append((movie_id, predicted_score))  # Add only if the predicted score is not None
     
     recommendations.sort(key=lambda x: x[1], reverse=True)
-    return recommendations[:10]
+    top_recommendations = recommendations[:10]
 
+    return top_recommendations
 
-#define the function to calculate the predicted rating for a movie
-def predicted_rating(user_id, movie_id, similarity, group_ratings):
-    user_ratings = group_ratings[group_ratings['userId'] == user_id]
-    user_mean_rating = user_ratings['rating'].mean()
-
-    weighted_sum = 0
-    sum_of_weights = 0
-
-    for similar_user_id, sim_value in similarity.items():
-        similar_user_ratings = group_ratings[group_ratings['userId'] == similar_user_id]
-        if movie_id in similar_user_ratings['movieId'].values:
-            similar_user_rating = similar_user_ratings[similar_user_ratings['movieId'] == movie_id]['rating'].values[0]
-            weighted_sum += sim_value * (similar_user_rating - similar_user_ratings['rating'].mean())
-            sum_of_weights += abs(sim_value)
-    
-    if sum_of_weights == 0:
-        return user_mean_rating
-    else:
-        predicted_score = user_mean_rating + weighted_sum / sum_of_weights
-        return predicted_score
-
-#calculate recommendations for each user in the group
-for user_id in group_users:
-    user_recommendations = calculate_recommendations(user_id, group_ratings)
-    print("\nRecommendations for user", user_id, ":")
-    for rank, (movie_id, predicted_score) in enumerate(user_recommendations, start=1):
-        print(f"{rank}. Movie ID: {movie_id}, Predicted Score: {predicted_score}")
-
-#define the function to aggregate recommendations using the average method
+# Function to aggregate recommendations using the average method
 def aggregate_recommendations_average(recommendations):
     aggregated_scores = {}
-    for user_rec in recommendations.values():
+    for user_rec in recommendations:
         for movie_id, predicted_score in user_rec:
             if movie_id not in aggregated_scores:
                 aggregated_scores[movie_id] = [predicted_score]
@@ -71,15 +85,16 @@ def aggregate_recommendations_average(recommendations):
 
     averaged_recommendations = []
     for movie_id, scores in aggregated_scores.items():
-        avg_score = np.mean(scores)
-        averaged_recommendations.append((movie_id, avg_score))
+        avg_score = np.mean([score for score in scores if not np.isnan(score)])
+        if not np.isnan(avg_score):
+            averaged_recommendations.append((movie_id, avg_score))
 
     return sorted(averaged_recommendations, key=lambda x: x[1], reverse=True)[:10]
 
-#define the function to aggregate recommendations using the least misery method
+# Function to aggregate recommendations using the least misery method
 def aggregate_recommendations_least_misery(recommendations):
     least_misery_recommendations = {}
-    for user_rec in recommendations.values():
+    for user_rec in recommendations:
         for movie_id, predicted_score in user_rec:
             if movie_id not in least_misery_recommendations:
                 least_misery_recommendations[movie_id] = predicted_score
@@ -88,18 +103,18 @@ def aggregate_recommendations_least_misery(recommendations):
 
     return sorted(least_misery_recommendations.items(), key=lambda x: x[1], reverse=True)[:10]
 
-#calculate recommendations for each user in the group
+# Calculate recommendations for each user in the group
 recommendations = {}
 for user_id in group_users:
     recommendations[user_id] = calculate_recommendations(user_id, group_ratings)
 
-#aggregate recommendations using the average method
-average_recommendations = aggregate_recommendations_average(recommendations)
+# Aggregate recommendations using the average method
+average_recommendations = aggregate_recommendations_average(list(recommendations.values()))
 
-#aggregate recommendations using the least misery method
-least_misery_recommendations = aggregate_recommendations_least_misery(recommendations)
+# Aggregate recommendations using the least misery method
+least_misery_recommendations = aggregate_recommendations_least_misery(list(recommendations.values()))    
 
-#print the top-10 recommendations for the group
+# Print the top-10 recommendations for the group using both aggregation methods
 print("\nTop-10 recommendations using the average method for the group:")
 for rank, (movie_id, predicted_score) in enumerate(average_recommendations, start=1):
     print(f"{rank}. Movie ID: {movie_id}, Predicted Score: {predicted_score}")
@@ -109,72 +124,49 @@ for rank, (movie_id, predicted_score) in enumerate(least_misery_recommendations,
     print(f"{rank}. Movie ID: {movie_id}, Predicted Score: {predicted_score}")
 
 
-#(b)define the function to calculate the disagreement between two users
-def calculate_disagreement(user1_ratings, user2_ratings):
-    #merge common movies between the two users
-    common_movies = pd.merge(user1_ratings, user2_ratings, on='movieId', how='inner')
-    
-    #check if there are common movies to compute disagreement
-    if not common_movies.empty:
-        #calculate squared difference of ratings for common movies
-        squared_diff = (common_movies['rating_x'].values - common_movies['rating_y'].values) ** 2
-        #calculate the root mean square difference
-        rmsd = np.sqrt(np.mean(squared_diff))
-        return rmsd
-    else:
-        return None
+#(b) Function to calculate disagreement among users
+def calculate_disagreement(recommendations):
+    movie_scores = {}
+    for user_rec in recommendations:
+        for movie_id, predicted_score in user_rec:
+            if movie_id not in movie_scores:
+                movie_scores[movie_id] = [predicted_score]
+            else:
+                movie_scores[movie_id].append(predicted_score)
 
+    disagreement = {}
+    for movie_id, scores in movie_scores.items():
+        if len(scores) > 1:
+            std_dev = np.std(scores)
+            disagreement[movie_id] = std_dev
 
+    return disagreement
 
-#calculate Disagreements
-disagreements = {}
-for user1_id in group_users:
-    for user2_id in group_users:
-        if user1_id != user2_id:
-            user1_ratings = group_ratings[group_ratings['userId'] == user1_id]
-            user2_ratings = group_ratings[group_ratings['userId'] == user2_id]
-            disagreement = calculate_disagreement(user1_ratings, user2_ratings)
-            if disagreement is not None:
-                disagreements[(user1_id, user2_id)] = disagreement
-
-#define the function to calculate weighted recommendations for a group
-def calculate_weighted_recommendations(group_users, group_ratings, disagreements):
-    weighted_recommendations = {}
-    for user_id in group_users:
-        user_recommendations = {}
-        for movie_id in group_ratings['movieId'].unique():
-            predicted_score = predicted_rating(user_id, movie_id, disagreements, group_ratings)
-            user_recommendations[movie_id] = predicted_score
-        weighted_recommendations[user_id] = user_recommendations
-    return weighted_recommendations
-
-#define the function to aggregate weighted recommendations using average method
-def aggregate_weighted_recommendations(weighted_recommendations):
+# Function to aggregate recommendations using disagreement-aware method
+def aggregate_recommendations_disagreement(recommendations, disagreement):
     aggregated_scores = {}
-    for user_rec in weighted_recommendations.values():
-        for movie_id, predicted_score in user_rec.items():
+    for user_rec in recommendations:
+        for movie_id, predicted_score in user_rec:
             if movie_id not in aggregated_scores:
                 aggregated_scores[movie_id] = [predicted_score]
             else:
                 aggregated_scores[movie_id].append(predicted_score)
-    
-    averaged_recommendations = []
+
+    weighted_aggregated_recommendations = {}
     for movie_id, scores in aggregated_scores.items():
-        weighted_avg_score = np.mean(scores)
-        averaged_recommendations.append((movie_id, weighted_avg_score))
-    
-    return sorted(averaged_recommendations, key=lambda x: x[1], reverse=True)[:10]
+        avg_score = np.mean([score for score in scores if not np.isnan(score)])
+        if not np.isnan(avg_score):
+            weighted_aggregated_recommendations[movie_id] = avg_score * (1 - disagreement.get(movie_id, 0))
 
-#calculate weighted recommendations for the group
-weighted_recommendations = calculate_weighted_recommendations(group_users, group_ratings, disagreements)
+    return sorted(weighted_aggregated_recommendations.items(), key=lambda x: x[1], reverse=True)[:10]
 
-#aggregate weighted recommendations using the average method
-weighted_average_recommendations = aggregate_weighted_recommendations(weighted_recommendations)
+# Calculate disagreement among users
+disagreement = calculate_disagreement(list(recommendations.values()))
 
-#print the top-10 weighted average recommendations for the group
-print("\nTop-10 recommendations for the group using weighted average method:")
-for rank, (movie_id, weighted_avg_score) in enumerate(weighted_average_recommendations, start=1):
-    print(f"{rank}. Movie ID: {movie_id}, Weighted Average Score: {weighted_avg_score}")
+# Aggregate recommendations using the disagreement-aware method
+disagreement_aware_recommendations = aggregate_recommendations_disagreement(list(recommendations.values()), disagreement)
 
-
-
+# Print the top-10 recommendations for the group using the disagreement-aware method
+print("\nTop-10 recommendations using the disagreement-aware method for the group:")
+for rank, (movie_id, predicted_score) in enumerate(disagreement_aware_recommendations, start=1):
+    print(f"{rank}. Movie ID: {movie_id}, Predicted Score: {predicted_score}")
