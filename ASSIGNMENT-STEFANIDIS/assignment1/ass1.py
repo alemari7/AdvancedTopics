@@ -26,7 +26,7 @@ def find_similar_users(user_id, ratings_data):
     return dict(sorted(similarity.items(), key=lambda x: x[1], reverse=True)[:10])
 
 similar_users = find_similar_users(USER_1, ratings_data)
-print("Top 10 similar users for user", USER_1, "using Pearson Correlation are:", similar_users)
+print("\nTop 10 similar users for user", USER_1, "using Pearson Correlation are:", similar_users)
 
 #(c)define the function to predict the rating
 def predicted_rating(user_id, movie_id, similarity, ratings_data):
@@ -52,7 +52,7 @@ def predicted_rating(user_id, movie_id, similarity, ratings_data):
         predicted_score = user_mean_rating + weighted_sum / sum_of_weights
         return predicted_score
 
-print("Predicted rating for user", USER_1, "and movie", movie_id, ":", predicted_rating(USER_1, movie_id, similar_users, ratings_data))
+print("\nPredicted rating for user", USER_1, "and movie", movie_id, ":", predicted_rating(USER_1, movie_id, similar_users, ratings_data))
 
 # Define the function to find the top 10 recommended movies
 def top_recommended_movies(user_id, similarity, ratings_data):
@@ -71,7 +71,7 @@ def top_recommended_movies(user_id, similarity, ratings_data):
 
 # Find the top 10 recommended movies
 top_movies = top_recommended_movies(USER_1, similar_users, ratings_data)
-print("Top 10 recommended films for user ", USER_1, "are:")
+print("\nTop 10 recommended films for user ", USER_1, "are:")
 for movie_id, predicted_score in top_movies:
     print("Movie ID:", movie_id, "| Predicted Rating:", predicted_score)
 
@@ -100,4 +100,4 @@ def find_similar_users_euclidean(USER_1, ratings_data):
 
 # finding similar users using Euclidean similarity
 similar_users_euclidean = find_similar_users_euclidean(USER_1, ratings_data)
-print("Top 10 similar users for user", USER_1, "using Euclidean similarity are:", similar_users_euclidean)
+print("\nTop 10 similar users for user", USER_1, "using Euclidean similarity are:", similar_users_euclidean)
