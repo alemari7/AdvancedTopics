@@ -165,6 +165,7 @@ def aggregate_recommendations_disagreement(recommendations, disagreement):
 
     return sorted(weighted_aggregated_recommendations.items(), key=lambda x: x[1], reverse=True)[:10]
 
+
 # Calculate disagreement among users
 disagreement = calculate_disagreement(list(recommendations.values()))
 
