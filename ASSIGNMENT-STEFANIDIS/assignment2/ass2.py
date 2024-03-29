@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-from scipy.stats import pearsonr
 import math
 
 # Load the MovieLens 100K dataset
