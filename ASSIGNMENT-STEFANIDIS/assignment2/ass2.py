@@ -108,6 +108,11 @@ recommendations = {}
 for user_id in group_users:
     recommendations[user_id] = calculate_recommendations(user_id, group_ratings)
 
+# Print the users considered for recommendations
+print("\nUsers considered for recommendations:")
+for user_id in group_users:
+    print(f"User ID: {user_id}")
+
 # Aggregate recommendations using the average method
 average_recommendations = aggregate_recommendations_average(list(recommendations.values()))
 
