@@ -4,7 +4,7 @@ from scipy.stats import pearsonr
 import math
 
 #(a) load the data and choose the user and movie
-USER_1 = 7
+USER_1 = 4
 movie_id = 23
 ratings_data = pd.read_csv("ratings.csv").drop(['timestamp'], axis=1)
 
