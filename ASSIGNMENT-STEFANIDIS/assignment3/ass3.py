@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-from scipy.stats import pearsonr
 import math
 
 # Load the MovieLens 100K dataset
@@ -57,8 +56,8 @@ def predicted_rating(user_id, movie_id, ratings_data):
         return pred
     except (RuntimeWarning, ZeroDivisionError):
         return None  # Return None if there's an exception
-    
-# Define the function to calculate the recommendations for a user    
+
+#define the function to calculate the sequential group recommendations 
 def calculate_recommendations(user_id, group_ratings):
     recommendations = []
     user_ratings = group_ratings[group_ratings['userId'] == user_id]
@@ -69,12 +68,13 @@ def calculate_recommendations(user_id, group_ratings):
         if movie_id not in user_voted_movies:  # Check if the movie is not voted by the user
             predicted_score = predicted_rating(user_id, movie_id, group_ratings)
             if predicted_score is not None:
-                recommendations.append((movie_id, predicted_score))  # Add only if the predicted score is not None
+                recommendations.append((movie_id, predicted_score))  # Append movie_id and predicted_score as a tuple
     
     recommendations.sort(key=lambda x: x[1], reverse=True)
     top_recommendations = recommendations[:10]
 
-    return recommendations  # Return recommendations, even if empty
+    return top_recommendations  # Return recommendations, even if empty
+
 
 # Function to aggregate recommendations using the method of averaging
 def average_aggregate_recommendations(recommendations):
@@ -134,7 +134,7 @@ def hybrid_aggregate_recommendations(recommendations, alpha):
 
     return sorted(hybrid_aggregated_recommendations, key=lambda x: x[1], reverse=True)[:10]
 
-# Function to generate sequential group recommendations using the hybrid method
+# Function to calculate the sequential group recommendations using the hybrid method
 def sequential_group_recommendations_hybrid(group_users, group_ratings, rounds=3, top_n=10):
     all_round_recommendations = []
     current_group_ratings = group_ratings.copy()  # Copy of initial input data
@@ -145,28 +145,34 @@ def sequential_group_recommendations_hybrid(group_users, group_ratings, rounds=3
             user_recommendations = calculate_recommendations(user_id, current_group_ratings)
             round_recommendations.append(user_recommendations)  # Add user's recommendations to the list
 
-        # Calculate alpha as the difference between max and min satisfaction values
-        group_satisfaction_values = [user_recommendations[0][1] for user_recommendations in round_recommendations]
-        alpha = max(group_satisfaction_values) - min(group_satisfaction_values)
+        # Check if any recommendations exist for this round
+        if all(user_rec is not None for user_rec in round_recommendations):
+            # Calculate alpha as the difference between max and min satisfaction values
+            group_satisfaction_values = [user_recommendations[0][1] for user_recommendations in round_recommendations if user_recommendations]
+            alpha = max(group_satisfaction_values) - min(group_satisfaction_values)
 
-        # Determine which aggregation method to use based on alpha
-        if alpha == 0:  # If alpha is zero, apply the averaging method
-            hybrid_round_recommendations = average_aggregate_recommendations(round_recommendations)
-        elif alpha == 1:  # If alpha is one, apply the least misery method
-            hybrid_round_recommendations = least_misery_aggregate_recommendations(round_recommendations)
-        else:  # Otherwise, use the hybrid method
-            hybrid_round_recommendations = hybrid_aggregate_recommendations(round_recommendations, alpha)
+            # Determine which aggregation method to use based on alpha
+            if alpha == 0:  # If alpha is zero, apply the averaging method
+                hybrid_round_recommendations = average_aggregate_recommendations(round_recommendations)
+            elif alpha == 1:  # If alpha is one, apply the least misery method
+                hybrid_round_recommendations = least_misery_aggregate_recommendations(round_recommendations)
+            else:  # Otherwise, use the hybrid method
+                hybrid_round_recommendations = hybrid_aggregate_recommendations(round_recommendations, alpha)
 
-        all_round_recommendations.append(hybrid_round_recommendations)
-        
-        # Remove recommended movies from input data
-        recommended_movies = [movie_id for movie_id, _ in hybrid_round_recommendations]
-        current_group_ratings = current_group_ratings[~current_group_ratings['movieId'].isin(recommended_movies)]
+            all_round_recommendations.append(hybrid_round_recommendations)
+            
+            # Remove recommended movies from input data
+            recommended_movies = [movie_id for movie_id, _ in hybrid_round_recommendations]
+            current_group_ratings = current_group_ratings[~current_group_ratings['movieId'].isin(recommended_movies)]
+        else:
+            # If no recommendations exist for any user in this round, break the loop
+            break
 
     return all_round_recommendations
 
+
 # Generate a group of 3 random users
-group_users = np.random.choice(ratings_data['userId'].unique(), size=3, replace=False)
+group_users =  [2,8,24]
 group_ratings = ratings_data[ratings_data['userId'].isin(group_users)]
 
 # Calculate sequential group recommendations using hybrid method
@@ -180,3 +186,116 @@ for round_num, round_recommendations in enumerate(sequential_recommendations_hyb
             print(f"{rank}. Movie ID: {movie_id}, Predicted Score: {predicted_score}")
     else:
         print("No recommendations for this round.")
+
+
+# New function to calculate the sequential group recommendations using the hybrid method (2nd version)
+# Function to aggregate recommendations using the sum_aggregate_method (2nd version)
+def sum_aggregate_recommendations_v2(recommendations):
+    aggregated_scores = {}
+    for user_rec in recommendations:
+        for movie_id, predicted_score in user_rec:
+            if movie_id not in aggregated_scores:
+                aggregated_scores[movie_id] = [predicted_score]
+            else:
+                aggregated_scores[movie_id].append(predicted_score)
+
+    sum_aggregated_recommendations = []
+    for movie_id, scores in aggregated_scores.items():
+        total_score = np.sum([score for score in scores if not np.isnan(score)])  # Use sum of scores
+        sum_aggregated_recommendations.append((movie_id, total_score))
+
+    return sorted(sum_aggregated_recommendations, key=lambda x: x[1], reverse=True)[:10]
+
+# Function to aggregate recommendations using the method of least misery (2nd version)
+def max_aggregate_recommendations_v2(recommendations):
+    aggregated_scores = {}
+    for user_rec in recommendations:
+        for movie_id, predicted_score in user_rec:
+            if movie_id not in aggregated_scores:
+                aggregated_scores[movie_id] = [predicted_score]
+            else:
+                aggregated_scores[movie_id].append(predicted_score)
+
+    max_aggregated_recommendations = []
+    for movie_id, scores in aggregated_scores.items():
+        max_score = max(scores)
+        max_aggregated_recommendations.append((movie_id, max_score))
+
+    return sorted(max_aggregated_recommendations, key=lambda x: x[1], reverse=True)[:10]
+
+# Function to calculate the sequential group recommendations using the hybrid method (2nd version)
+def sequential_group_recommendations_hybrid_v2(group_users, group_ratings, rounds=3, top_n=10):
+    all_round_recommendations = []
+    current_group_ratings = group_ratings.copy()  # Copy of initial input data
+    
+    for round_num in range(rounds):
+        round_recommendations = []
+        for user_id in group_users:
+            user_recommendations = calculate_recommendations(user_id, current_group_ratings)
+            round_recommendations.append(user_recommendations)  # Add user's recommendations to the list
+
+        # Check if any recommendations exist for this round
+        if all(user_rec is not None for user_rec in round_recommendations):
+            # Calculate alpha as the difference between max and min satisfaction values
+            group_satisfaction_values = [user_recommendations[0][1] for user_recommendations in round_recommendations if user_recommendations]
+            alpha = max(group_satisfaction_values) - min(group_satisfaction_values)
+
+            # Determine which aggregation method to use based on alpha
+            if alpha == 0:  # If alpha is zero, apply the sum aggregation method
+                hybrid_round_recommendations = sum_aggregate_recommendations_v2(round_recommendations)
+            elif alpha == 1:  # If alpha is one, apply the max aggregation method
+                hybrid_round_recommendations = max_aggregate_recommendations_v2(round_recommendations)
+            else:  # Otherwise, use the hybrid method
+                hybrid_round_recommendations = hybrid_aggregate_recommendations_v2(round_recommendations, alpha)
+
+            all_round_recommendations.append(hybrid_round_recommendations)
+            
+            # Remove recommended movies from input data
+            recommended_movies = [movie_id for movie_id, _ in hybrid_round_recommendations]
+            current_group_ratings = current_group_ratings[~current_group_ratings['movieId'].isin(recommended_movies)]
+        else:
+            # If no recommendations exist for any user in this round, break the loop
+            break
+
+    return all_round_recommendations
+
+# Function to aggregate recommendations using a hybrid method (2nd version)
+def hybrid_aggregate_recommendations_v2(recommendations, alpha):
+    if alpha == 0:  # If alpha is zero, apply the sum aggregation method
+        return sum_aggregate_recommendations_v2(recommendations)
+    elif alpha == 1:  # If alpha is one, apply the max aggregation method
+        return max_aggregate_recommendations_v2(recommendations)
+    else:  # Otherwise, use the hybrid method
+        aggregated_scores = {}
+        for user_rec in recommendations:
+            for movie_id, predicted_score in user_rec:
+                if movie_id not in aggregated_scores:
+                    aggregated_scores[movie_id] = [predicted_score]
+                else:
+                    aggregated_scores[movie_id].append(predicted_score)
+
+        hybrid_aggregated_recommendations = []
+        for movie_id, scores in aggregated_scores.items():
+            sum_score = np.sum([score for score in scores if not np.isnan(score)])  # Use sum of scores
+            max_score = max(scores)
+            hybrid_score = (sum_score * (1 - alpha)) + (max_score * alpha)
+            hybrid_aggregated_recommendations.append((movie_id, hybrid_score))
+
+        return sorted(hybrid_aggregated_recommendations, key=lambda x: x[1], reverse=True)[:10]
+
+# Generate a group of 3 random users
+group_users =  [2,8,24]
+group_ratings = ratings_data[ratings_data['userId'].isin(group_users)]
+
+# Calculate sequential group recommendations using the hybrid method (2nd version)
+sequential_recommendations_hybrid_v2 = sequential_group_recommendations_hybrid_v2(group_users, group_ratings)
+
+# Print the top-10 sequential group recommendations for each round using the hybrid method (2nd version)
+for round_num, round_recommendations in enumerate(sequential_recommendations_hybrid_v2, start=1):
+    print(f"\nRound {round_num} - Top-10 recommendations (Hybrid Method, 2nd version):")
+    if round_recommendations:
+        for rank, (movie_id, predicted_score) in enumerate(round_recommendations, start=1):
+            print(f"{rank}. Movie ID: {movie_id}, Predicted Score: {predicted_score}")
+    else:
+        print("No recommendations for this round.")
+
